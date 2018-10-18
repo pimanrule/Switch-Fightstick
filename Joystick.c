@@ -26,15 +26,23 @@ these buttons for our use.
 
 #include "Joystick.h"
 
+
+#define CPU_PRESCALE(n) (CLKPR = 0x80, CLKPR = (n))
+#define BAUD_RATE 38400
+
+
 extern const uint8_t image_data[0x12c1] PROGMEM;
 
 // Main entry point.
 int main(void) {
+	//CPU_PRESCALE(0);
+
 	// We'll start by performing hardware and peripheral setup.
-	SetupHardware();
+	SetupH ardware();
 	// We'll then enable global interrupts for our use.
 	GlobalInterruptEnable();
 	// Once that's done, we'll enter an infinite loop.
+	uart_init(BAUD_RATE);
 	for (;;)
 	{
 		// We need to run our task to process and deliver data for our IN and OUT endpoints.
@@ -145,14 +153,21 @@ typedef enum {
 	STOP_Y,
 	MOVE_X,
 	MOVE_Y,
-	DONE
+	DONE,
+	PRESS_A,
+	UNPRESS_A,
+	WAITING,
+	HODL,
+	WAITUART,
+	CONNECT,
+	PRESSY
 } State_t;
 State_t state = SYNC_CONTROLLER;
 
 #define ECHOES 2
 int echoes = 0;
 USB_JoystickReport_Input_t last_report;
-
+char c;
 int report_count = 0;
 int xpos = 0;
 int ypos = 0;
@@ -184,7 +199,7 @@ void GetNextReport(USB_JoystickReport_Input_t* const ReportData) {
 			if (report_count > 100)
 			{
 				report_count = 0;
-				state = SYNC_POSITION;
+				state = WAITUART;
 			}
 			else if (report_count == 25 || report_count == 50)
 			{
@@ -195,6 +210,70 @@ void GetNextReport(USB_JoystickReport_Input_t* const ReportData) {
 				ReportData->Button |= SWITCH_A;
 			}
 			report_count++;
+			break;
+			/*if (report_count > 100)
+			{
+				report_count = 0;
+				state = PRESS_A;
+			}
+			report_count++;
+			break;*/
+
+		case PRESSY:
+			ReportData->Button |= SWITCH_Y;
+			state = UNPRESS_A;
+			break;
+		case PRESS_A:
+			ReportData->Button |= SWITCH_B;
+			state = HODL;
+			break;
+		case CONNECT:
+			ReportData->Button |= SWITCH_L;
+			ReportData->Button |= SWITCH_R;
+			_delay_ms(500);
+			state = WAITUART;
+			break;
+		case UNPRESS_A:
+			state = WAITING;
+			break;
+		case WAITING:
+			state = WAITUART;
+			break;
+		case HODL:
+			_delay_ms(5)
+			state = WAITUART;
+			break;
+		case WAITUART:
+			 c = uart_getchar();
+			if (c == 'u') {
+				ReportData->LY = STICK_MIN;
+			} else if (c == 'd') {
+				ReportData->LY = STICK_MAX;
+			} else if (c == 'l') {
+				ReportData->LX = STICK_MIN;
+			} else if (c == 'r') {
+				ReportData->LX = STICK_MAX;
+			} else if (c == '1') { //UL
+				ReportData->LY = STICK_MIN;
+				ReportData-> LX = STICK_MIN;
+			} else if (c == '2') { //UR
+				ReportData->LY = STICK_MIN;
+				ReportData-> LX = STICK_MAX;
+			} else if (c == '3') { //DL
+				ReportData-> LY = STICK_MAX;
+				ReportData-> LX = STICK_MIN;
+			} else if (c == '4') { //DR
+				ReportData-> LY = STICK_MAX;
+				ReportData-> LX = STICK_MAX;
+			} else if (c == 'b') {
+				state = PRESS_A;
+			} else if (c == 'y') {
+				state = PRESSY;
+			} else if (c == 'c') {
+				state = CONNECT;
+			}
+
+
 			break;
 		case SYNC_POSITION:
 			if (report_count == 250)
@@ -258,9 +337,7 @@ void GetNextReport(USB_JoystickReport_Input_t* const ReportData) {
 	}
 
 	// Inking
-	if (state != SYNC_CONTROLLER && state != SYNC_POSITION)
-		if (pgm_read_byte(&(image_data[(xpos / 8) + (ypos * 40)])) & 1 << (xpos % 8))
-			ReportData->Button |= SWITCH_A;
+
 
 	// Prepare to echo this report
 	memcpy(&last_report, ReportData, sizeof(USB_JoystickReport_Input_t));
