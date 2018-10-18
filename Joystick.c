@@ -38,7 +38,7 @@ int main(void) {
 	//CPU_PRESCALE(0);
 
 	// We'll start by performing hardware and peripheral setup.
-	SetupH ardware();
+	SetupHardware();
 	// We'll then enable global interrupts for our use.
 	GlobalInterruptEnable();
 	// Once that's done, we'll enter an infinite loop.
